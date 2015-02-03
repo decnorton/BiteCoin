@@ -1,4 +1,15 @@
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath 'com.jakewharton.hugo:hugo-plugin:1.1.0'
+    }
+}
+
 apply plugin: 'com.android.application'
+apply plugin: 'hugo'
 
 android {
     compileSdkVersion 21
@@ -11,6 +22,7 @@ android {
         versionCode 1
         versionName "1.0"
     }
+
     buildTypes {
         release {
             minifyEnabled false
@@ -21,5 +33,13 @@ android {
 
 dependencies {
     compile fileTree(dir: 'libs', include: ['*.jar'])
+
     compile 'com.android.support:appcompat-v7:21.0.3'
+    compile 'com.google.android.gms:play-services-fitness:6.5.87'
+
+    compile 'com.github.frankiesardo:icepick:2.3.6'
+    provided 'com.github.frankiesardo:icepick-processor:2.3.6'
+
+    compile 'com.jakewharton:butterknife:6.1.0'
+    compile 'com.squareup:otto:1.3.6'
 }
