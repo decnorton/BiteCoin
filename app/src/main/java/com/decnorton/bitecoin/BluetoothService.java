@@ -180,7 +180,7 @@ public class BluetoothService extends Service {
     }
 
     @DebugLog
-    public Task<Boolean> sendData(final BluetoothDevice device, final String message) {
+    public Task<Boolean> sendMessage(final BluetoothDevice device, final String message) {
         return Task.call(new Callable<Boolean>() {
 
             @Override

@@ -14,7 +14,9 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -49,11 +51,15 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
      * Views
      */
     @InjectView(R.id.main_steps_container) LinearLayout mStepsContainer;
-    @InjectView(R.id.main_bluetooth_device_name) TextView mBluetoothDeviceNameView;
     @InjectView(R.id.main_tracking_progress) ProgressBar mTrackingProgress;
     @InjectView(R.id.main_start_stop_container) FrameLayout mStartStopContainer;
     @InjectView(R.id.main_start_button) Button mStartButton;
     @InjectView(R.id.main_stop_button) Button mStopButton;
+
+    @InjectView(R.id.main_bluetooth_device_name) TextView mBluetoothDeviceNameView;
+    @InjectView(R.id.main_bluetooth_message) EditText mBluetoothMessageView;
+    @InjectView(R.id.main_bluetooth_send) ImageButton mBluetoothSendView;
+
 
     // Dialogs
     private BluetoothDevicesDialog mBluetoothDevicesDialog = BluetoothDevicesDialog.getInstance(this);
@@ -66,8 +72,6 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
      * Services
      */
     private TrackerService mTrackerService;
-    private BluetoothService mBluetoothService;
-
     ServiceConnection mTrackerServiceConnection = new ServiceConnection() {
 
         @Override
@@ -81,7 +85,7 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
         }
 
     };
-
+    private BluetoothService mBluetoothService;
     ServiceConnection mBluetoothServiceConnection = new ServiceConnection() {
 
         @Override
@@ -113,6 +117,7 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
 
         mStartButton.setOnClickListener(this);
         mStopButton.setOnClickListener(this);
+        mBluetoothSendView.setOnClickListener(this);
 
         showBluetoothDevicesDialog();
 
@@ -159,13 +164,25 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
         mStopButton.setVisibility(isTracking() ? View.VISIBLE : View.GONE);
         mTrackingProgress.setVisibility(isTracking() ? View.VISIBLE : View.GONE);
 
+        // Set the device name label
         mBluetoothDeviceNameView.setText(
                 mIsConnecting
                         ? "Connecting..."
                         : mBluetoothDevice == null
-                            ? "Not connected"
-                            : "Connected: " + mBluetoothDevice.getName()
+                        ? "Not connected"
+                        : "Connected: " + mBluetoothDevice.getName()
         );
+
+        // Set the hint on the message EditText
+        mBluetoothMessageView.setHint(
+                mBluetoothDevice != null
+                        ? "Send message to " + mBluetoothDevice.getName()
+                        : null
+        );
+
+        mBluetoothDeviceNameView.setVisibility(mBluetoothDevice != null ? View.GONE : View.VISIBLE);
+        mBluetoothMessageView.setVisibility(mBluetoothDevice != null ? View.VISIBLE : View.GONE);
+        mBluetoothSendView.setVisibility(mBluetoothDevice != null ? View.VISIBLE : View.GONE);
 
         if (mBluetoothDisconnectMenuItem != null)
             mBluetoothDisconnectMenuItem.setVisible(mBluetoothDevice != null);
@@ -186,6 +203,30 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
                 stopTracking();
                 break;
 
+            case R.id.main_bluetooth_send:
+                if (mBluetoothService != null) {
+                    // Get the message
+                    final String message = mBluetoothMessageView.getText().toString();
+
+                    // Reset the field
+                    mBluetoothMessageView.setText(null);
+
+                    // Send the message
+                    mBluetoothService
+                            .sendMessage(mBluetoothDevice, message)
+                            .continueWith(new Continuation<Boolean, Object>() {
+                                @Override
+                                public Object then(Task<Boolean> task) throws Exception {
+                                    if (!task.isFaulted() && task.getResult()) {
+                                        toast("Message sent: " + message);
+                                    }
+
+                                    return null;
+                                }
+                            }, Task.UI_THREAD_EXECUTOR);
+                }
+                break;
+
         }
     }
 
@@ -198,11 +239,9 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
 
             populateViews();
 
+            // Connect to device then send a message
             mBluetoothService
-                    // Connect to the device
                     .connectToDevice(device)
-
-                            // Then send a test message
                     .continueWith(new Continuation<Boolean, Object>() {
                         @Override
                         public Object then(Task<Boolean> task) throws Exception {
@@ -214,8 +253,8 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
 
                             populateViews();
 
-                            mBluetoothService.sendData(device, "BOOBIES");
-                            mBluetoothService.sendData(device, "1");
+                            mBluetoothService.sendMessage(device, "BOOBIES");
+                            mBluetoothService.sendMessage(device, "1");
                             return null;
                         }
                     }, Task.UI_THREAD_EXECUTOR);

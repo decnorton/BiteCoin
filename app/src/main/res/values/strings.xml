@@ -8,4 +8,6 @@
     <string name="dialog_bluetooth_devices_title">Bluetooth Devices</string>
     <string name="action_bluetooth_connect">Connect</string>
     <string name="action_bluetooth_disconnect">Disconnect</string>
+    <string name="main_bluetooth_message_hint">Message</string>
+
 </resources>
