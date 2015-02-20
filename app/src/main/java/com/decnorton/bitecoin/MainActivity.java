@@ -1,5 +1,6 @@
 package com.decnorton.bitecoin;
 
+import android.bluetooth.BluetoothDevice;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -9,23 +10,29 @@ import android.os.Bundle;
 import android.os.IBinder;
 import android.support.v7.app.ActionBarActivity;
 import android.util.Log;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.View;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import com.decnorton.bitecoin.events.Bluetooth;
 import com.google.android.gms.common.GooglePlayServicesUtil;
 import com.squareup.otto.Bus;
 import com.squareup.otto.Subscribe;
 
+import bolts.Continuation;
+import bolts.Task;
 import butterknife.ButterKnife;
 import butterknife.InjectView;
 import hugo.weaving.DebugLog;
 
 
-public class MainActivity extends ActionBarActivity implements View.OnClickListener {
+public class MainActivity extends ActionBarActivity implements View.OnClickListener, BluetoothDevicesDialog.DevicePickedListener {
     private static final String TAG = "MainActivity";
 
     /**
@@ -42,26 +49,59 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
      * Views
      */
     @InjectView(R.id.main_steps_container) LinearLayout mStepsContainer;
+    @InjectView(R.id.main_bluetooth_device_name) TextView mBluetoothDeviceNameView;
     @InjectView(R.id.main_tracking_progress) ProgressBar mTrackingProgress;
     @InjectView(R.id.main_start_stop_container) FrameLayout mStartStopContainer;
     @InjectView(R.id.main_start_button) Button mStartButton;
     @InjectView(R.id.main_stop_button) Button mStopButton;
 
-    private TrackerService mService;
+    // Dialogs
+    private BluetoothDevicesDialog mBluetoothDevicesDialog = BluetoothDevicesDialog.getInstance(this);
 
-    ServiceConnection mServiceConnection = new ServiceConnection() {
+    // Menu item
+    private MenuItem mBluetoothConnectMenuItem;
+    private MenuItem mBluetoothDisconnectMenuItem;
+
+    /**
+     * Services
+     */
+    private TrackerService mTrackerService;
+    private BluetoothService mBluetoothService;
+
+    ServiceConnection mTrackerServiceConnection = new ServiceConnection() {
+
         @Override
         public void onServiceConnected(ComponentName name, IBinder service) {
-            mService = ((TrackerService.TrackerBinder) service).getService();
+            mTrackerService = ((TrackerService.TrackerBinder) service).getService();
         }
 
         @Override
         public void onServiceDisconnected(ComponentName name) {
-            mService = null;
+            mTrackerService = null;
         }
+
     };
-    private boolean mIsBound = false;
+
+    ServiceConnection mBluetoothServiceConnection = new ServiceConnection() {
+
+        @Override
+        public void onServiceConnected(ComponentName name, IBinder service) {
+            mBluetoothService = ((BluetoothService.BluetoothBinder) service).getService();
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+            mBluetoothService = null;
+        }
+
+    };
+
+    /**
+     * Data
+     */
+    private BluetoothDevice mBluetoothDevice;
     private boolean mAuthInProgress = false;
+    private boolean mIsConnecting = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -74,7 +114,13 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
         mStartButton.setOnClickListener(this);
         mStopButton.setOnClickListener(this);
 
+        showBluetoothDevicesDialog();
+
         populateViews();
+    }
+
+    private void showBluetoothDevicesDialog() {
+        mBluetoothDevicesDialog.show(getSupportFragmentManager(), "deviceListDialog");
     }
 
     @Override
@@ -83,18 +129,18 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
 
         bus.register(this);
 
-        bindService(new Intent(this, TrackerService.class), mServiceConnection, Context.BIND_AUTO_CREATE);
-        mIsBound = true;
+        bindService(new Intent(this, TrackerService.class), mTrackerServiceConnection, Context.BIND_AUTO_CREATE);
+        bindService(new Intent(this, BluetoothService.class), mBluetoothServiceConnection, Context.BIND_AUTO_CREATE);
     }
 
     @Override
     protected void onPause() {
         super.onPause();
 
-        bus.unregister(this);
+        unbindService(mTrackerServiceConnection);
+        unbindService(mBluetoothServiceConnection);
 
-        if (mIsBound)
-            unbindService(mServiceConnection);
+        bus.unregister(this);
     }
 
     @Override
@@ -103,7 +149,7 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
             mAuthInProgress = false;
 
             if (resultCode == RESULT_OK) {
-                mService.connectClient();
+                mTrackerService.connectClient();
             }
         }
     }
@@ -112,6 +158,20 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
         mStartButton.setVisibility(isTracking() ? View.GONE : View.VISIBLE);
         mStopButton.setVisibility(isTracking() ? View.VISIBLE : View.GONE);
         mTrackingProgress.setVisibility(isTracking() ? View.VISIBLE : View.GONE);
+
+        mBluetoothDeviceNameView.setText(
+                mIsConnecting
+                        ? "Connecting..."
+                        : mBluetoothDevice == null
+                            ? "Not connected"
+                            : "Connected: " + mBluetoothDevice.getName()
+        );
+
+        if (mBluetoothDisconnectMenuItem != null)
+            mBluetoothDisconnectMenuItem.setVisible(mBluetoothDevice != null);
+
+        if (mBluetoothConnectMenuItem != null)
+            mBluetoothConnectMenuItem.setVisible(mBluetoothDevice == null);
     }
 
     @Override
@@ -129,22 +189,95 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
         }
     }
 
+    @Override
+    public void onBluetoothDevicePicked(final BluetoothDevice device) {
+        Log.i(TAG, "[onBluetoothDevicePicked] " + device);
+
+        if (mBluetoothService != null) {
+            mIsConnecting = true;
+
+            populateViews();
+
+            mBluetoothService
+                    // Connect to the device
+                    .connectToDevice(device)
+
+                            // Then send a test message
+                    .continueWith(new Continuation<Boolean, Object>() {
+                        @Override
+                        public Object then(Task<Boolean> task) throws Exception {
+                            mIsConnecting = false;
+
+                            mBluetoothDevice = device;
+
+                            toast("Connected to " + device.getName() + "!");
+
+                            populateViews();
+
+                            mBluetoothService.sendData(device, "BOOBIES");
+                            mBluetoothService.sendData(device, "1");
+                            return null;
+                        }
+                    }, Task.UI_THREAD_EXECUTOR);
+        }
+    }
+
+    private void toast(String message) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+    }
+
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        getMenuInflater().inflate(R.menu.menu_main, menu);
+
+        mBluetoothConnectMenuItem = menu.findItem(R.id.action_bluetooth_connect);
+        mBluetoothDisconnectMenuItem = menu.findItem(R.id.action_bluetooth_disconnect);
+
+        return super.onCreateOptionsMenu(menu);
+    }
+
+    @Override
+    public boolean onPrepareOptionsMenu(Menu menu) {
+        mBluetoothDisconnectMenuItem.setVisible(mBluetoothDevice != null);
+        mBluetoothConnectMenuItem.setVisible(mBluetoothDevice == null);
+
+        return super.onPrepareOptionsMenu(menu);
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        switch (item.getItemId()) {
+
+            case R.id.action_bluetooth_connect:
+                showBluetoothDevicesDialog();
+                return true;
+
+            case R.id.action_bluetooth_disconnect:
+                if (mBluetoothService != null)
+                    mBluetoothService.disconnect(mBluetoothDevice);
+                return true;
+
+        }
+
+        return super.onOptionsItemSelected(item);
+    }
+
     private void startTracking() {
-        if (mService != null)
-            mService.startTracking();
+        if (mTrackerService != null)
+            mTrackerService.startTracking();
 
         populateViews();
     }
 
     private void stopTracking() {
-        if (mService != null)
-            mService.stopTracking();
+        if (mTrackerService != null)
+            mTrackerService.stopTracking();
 
         populateViews();
     }
 
     private boolean isTracking() {
-        return mService != null && mService.isTracking();
+        return mTrackerService != null && mTrackerService.isTracking();
     }
 
     private void addSteps(int newSteps, int totalSteps) {
@@ -215,6 +348,14 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
             } catch (IntentSender.SendIntentException e) {
                 e.printStackTrace();
             }
+        }
+    }
+
+    @Subscribe
+    public void onDeviceDisconnectedEvent(Bluetooth.DeviceDisconnectedEvent event) {
+        if (event.device.equals(mBluetoothDevice)) {
+            mBluetoothDevice = null;
+            populateViews();
         }
     }
 
