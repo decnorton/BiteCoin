@@ -5,8 +5,9 @@
 */
 
 int ledPin = 13;  // use the built in LED on pin 13 of the Uno
-int state = 0;
-int flag = 0;        // make sure that you return the state only once
+
+String prevCommand;
+String command;
 
 void setup() {
     // sets the pins as outputs:
@@ -15,29 +16,29 @@ void setup() {
     Serial.begin(9600); // Default connection rate for my BT module
 }
 
-void loop() {
-    // if some data is sent, read it and save it in the state variable
-    if (Serial.available() > 0) {
-      state = Serial.read();
-      flag = 0;  
-      Serial.println("State: " + state);
-    }
+void loop() {    
+  // Read string from Serial if available
+  if (Serial.available() > 0) {
+    command = Serial.readStringUntil('\n');
+  }
+  
+  // If command isn't empty and not equal to the previous command.
+  if (command != "" && command != prevCommand) {
+    prevCommand = command;
     
-    // if the state is 0 the led will turn off
-    if (state == '0') {
-        digitalWrite(ledPin, LOW);
-        
-        if (flag == 0) {
-          Serial.println("LED: off");
-          flag = 1;
-        }
-    }
-    // if the state is 1 the led will turn on
-    else if (state == '1') {
-        digitalWrite(ledPin, HIGH);
-        if (flag == 0) {
-          Serial.println("LED: on");
-          flag = 1;
-        }
-    }
+    // Handle it
+    handleCommand(command);
+  }
+}
+
+void handleCommand(String command) {  
+  if (command == "led on") {
+    digitalWrite(ledPin, HIGH);
+    Serial.println("LED on");
+  }
+  
+  if (command == "led off") {
+    digitalWrite(ledPin, LOW);
+    Serial.println("LED off");
+  }
 }
