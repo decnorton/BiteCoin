@@ -263,7 +263,8 @@ public class TrackerService extends Service {
                         .setSamplingRate(10, TimeUnit.SECONDS)
                                 // Can specify whether data type is raw or derived.
                         .build(),
-                mStepListener)
+                mStepListener
+        )
                 .setResultCallback(new ResultCallback<Status>() {
                     @Override
                     public void onResult(Status status) {

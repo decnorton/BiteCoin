@@ -14,8 +14,6 @@ import com.squareup.otto.Bus;
 import com.squareup.otto.Subscribe;
 
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executor;
@@ -37,13 +35,17 @@ public class BluetoothService extends Service {
     private static final int REQUEST_CONNECT_DEVICE_SECURE = 1;
     private static final int REQUEST_ENABLE_BLUTEOOTH = 3;
 
+    private static final int NUM_PIXELS = 16;
+    private static final int STEPS_PER_PIXEL = 10;
+
     private static final Executor sSingleThreadExecutor = Executors.newSingleThreadExecutor();
 
     // Well known SPP UUID
     private static final UUID MY_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
 
     // Insert your bluetooth devices MAC address
-    private BluetoothDevice mDevice;
+    private BluetoothDevice mBluetoothDevice;
+    private BluetoothSocket mBluetoothSocket;
 
     /**
      * Helpers
@@ -51,7 +53,6 @@ public class BluetoothService extends Service {
     private final Bus bus = BusProvider.get();
 
     private BluetoothAdapter mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-    private Map<BluetoothDevice, BluetoothSocket> mBluetoothSockets = new HashMap<>();
 
     /**
      * Binder
@@ -88,7 +89,7 @@ public class BluetoothService extends Service {
         return Task.callInBackground(new Callable<Boolean>() {
             @Override
             public Boolean call() throws Exception {
-                mDevice = device;
+                mBluetoothDevice = device;
 
                 if (device == null)
                     return false;
@@ -123,11 +124,12 @@ public class BluetoothService extends Service {
                         socket.close();
                     } catch (IOException e2) {
                         Log.e(TAG, "[connectToDevice] Couldn't close socket during connection failure: " + e2.getMessage(), e);
-                        return false;
                     }
+
+                    return false;
                 }
 
-                mBluetoothSockets.put(device, socket);
+                mBluetoothSocket = socket;
 
                 Log.i(TAG, "[connectToDevice] Connected!");
 
@@ -138,21 +140,26 @@ public class BluetoothService extends Service {
         });
     }
 
-    private boolean isConnected(BluetoothDevice device) {
-        return mBluetoothSockets.containsKey(device) && mBluetoothSockets.get(device).isConnected();
+    private boolean isConnected() {
+        if (mBluetoothSocket == null) {
+            Log.e(TAG, "[isConnected] mBluetoothSocket is null");
+            return false;
+        }
+
+        return mBluetoothSocket.isConnected();
     }
 
     @DebugLog
-    public boolean disconnect(BluetoothDevice device) {
-        if (!mBluetoothSockets.containsKey(device)) {
-            Log.e(TAG, "[disconnect] Device isn't in mBluetoothSockets");
-            return true;
-        }
-
+    public boolean disconnect() {
         try {
-            mBluetoothSockets.get(device).close();
-            mBluetoothSockets.remove(device);
-            bus.post(new Bluetooth.DeviceDisconnectedEvent(device));
+            if (mBluetoothSocket != null)
+                mBluetoothSocket.close();
+
+            bus.post(new Bluetooth.DeviceDisconnectedEvent(mBluetoothDevice));
+
+            mBluetoothSocket = null;
+            mBluetoothDevice = null;
+
             Log.i(TAG, "[disconnect] Disconnected!");
             return true;
         } catch (IOException e) {
@@ -176,27 +183,26 @@ public class BluetoothService extends Service {
         Log.i(TAG, "[checkBluetoothState] Bluetooth is enabled.");
 
         return true;
-
     }
 
     @DebugLog
-    public Task<Boolean> sendMessage(final BluetoothDevice device, final String message) {
+    public Task<Boolean> sendMessage(final String message) {
         return Task.call(new Callable<Boolean>() {
 
             @Override
             public Boolean call() throws Exception {
-                if (!isConnected(device)) {
-                    Log.e(TAG, "[sendData] Not connected. Message: " + message);
+                if (!isConnected()) {
+                    Log.e(TAG, "[sendMessage] Not connected. Message: " + message);
                     return false;
                 }
 
                 byte[] bytes = message.getBytes();
 
                 try {
-                    mBluetoothSockets.get(device).getOutputStream().write(bytes);
+                    mBluetoothSocket.getOutputStream().write(bytes);
                     return true;
                 } catch (IOException e) {
-                    Log.e(TAG, "[sendData] Couldn't send data: " + e.getMessage(), e);
+                    Log.e(TAG, "[sendMessage] Couldn't send data: " + e.getMessage(), e);
                     return false;
                 }
             }
@@ -204,6 +210,19 @@ public class BluetoothService extends Service {
         }, sSingleThreadExecutor);
     }
 
+    @DebugLog
+    public Task<Boolean> sendPixelMessage(final int totalSteps) {
+        String message = "pixel ";
+
+        int pixel = Math.min(totalSteps / STEPS_PER_PIXEL, NUM_PIXELS);
+
+        message += pixel;
+
+        Log.i(TAG, "[sendPixelMessage] Steps: " + totalSteps);
+        Log.i(TAG, "[sendPixelMessage] Pixel: " + pixel);
+
+        return sendMessage(message);
+    }
 
     public class BluetoothBinder extends Binder {
 
@@ -224,10 +243,22 @@ public class BluetoothService extends Service {
 
     @Subscribe
     public void onDeviceDisconnectedEvent(Bluetooth.DeviceDisconnectedEvent event) {
+        if (event.device.equals(mBluetoothDevice)) {
+            mBluetoothSocket = null;
+            mBluetoothDevice = null;
+        }
     }
 
     @Subscribe
     public void onDeviceDisconnectRequestedEvent(Bluetooth.DeviceDisconnectRequestedEvent event) {
-        disconnect(event.device);
+        if (event.device.equals(mBluetoothDevice))
+            disconnect();
     }
+
+    @Subscribe
+    public void onStepsEvent(TrackerService.StepsEvent event) {
+        Log.i(TAG, "[onStepsEvent] Total steps: " + event.totalSteps);
+        sendPixelMessage(event.totalSteps);
+    }
+
 }

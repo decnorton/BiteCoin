@@ -213,7 +213,7 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
 
                     // Send the message
                     mBluetoothService
-                            .sendMessage(mBluetoothDevice, message)
+                            .sendMessage(message)
                             .continueWith(new Continuation<Boolean, Object>() {
                                 @Override
                                 public Object then(Task<Boolean> task) throws Exception {
@@ -247,14 +247,18 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
                         public Object then(Task<Boolean> task) throws Exception {
                             mIsConnecting = false;
 
+                            if (task.isFaulted() || !task.getResult()) {
+                                toast("Couldn't connect to device");
+                                return null;
+                            }
+
                             mBluetoothDevice = device;
 
                             toast("Connected to " + device.getName() + "!");
 
                             populateViews();
 
-                            mBluetoothService.sendMessage(device, "BOOBIES");
-                            mBluetoothService.sendMessage(device, "1");
+                            mBluetoothService.sendPixelMessage(30);
                             return null;
                         }
                     }, Task.UI_THREAD_EXECUTOR);
@@ -293,7 +297,7 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
 
             case R.id.action_bluetooth_disconnect:
                 if (mBluetoothService != null)
-                    mBluetoothService.disconnect(mBluetoothDevice);
+                    mBluetoothService.disconnect();
                 return true;
 
         }
