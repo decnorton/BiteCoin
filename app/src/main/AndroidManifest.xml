@@ -32,10 +32,6 @@
             android:name=".TrackerService"
             android:exported="false"/>
 
-        <service
-            android:name=".BluetoothService"
-            android:exported="false"/>
-
         <meta-data
             android:name="com.google.android.gms.version"
             android:value="@integer/google_play_services_version"/>

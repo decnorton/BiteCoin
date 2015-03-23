@@ -23,6 +23,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.decnorton.bitecoin.events.Bluetooth;
+import com.decnorton.bitecoin.events.Shop;
 import com.google.android.gms.common.GooglePlayServicesUtil;
 import com.squareup.otto.Bus;
 import com.squareup.otto.Subscribe;
@@ -71,7 +72,7 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
     /**
      * Services
      */
-    private BluetoothService mBluetoothService;
+    private BluetoothService mBluetoothService = BluetoothService.getInstance();
     private TrackerService mTrackerService;
 
     ServiceConnection mTrackerServiceConnection = new ServiceConnection() {
@@ -84,20 +85,6 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
         @Override
         public void onServiceDisconnected(ComponentName name) {
             mTrackerService = null;
-        }
-
-    };
-
-    ServiceConnection mBluetoothServiceConnection = new ServiceConnection() {
-
-        @Override
-        public void onServiceConnected(ComponentName name, IBinder service) {
-            mBluetoothService = ((BluetoothService.BluetoothBinder) service).getService();
-        }
-
-        @Override
-        public void onServiceDisconnected(ComponentName name) {
-            mBluetoothService = null;
         }
 
     };
@@ -138,7 +125,6 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
         bus.register(this);
 
         bindService(new Intent(this, TrackerService.class), mTrackerServiceConnection, Context.BIND_AUTO_CREATE);
-        bindService(new Intent(this, BluetoothService.class), mBluetoothServiceConnection, Context.BIND_AUTO_CREATE);
     }
 
     @Override
@@ -146,7 +132,6 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
         super.onPause();
 
         unbindService(mTrackerServiceConnection);
-        unbindService(mBluetoothServiceConnection);
 
         bus.unregister(this);
     }
@@ -331,9 +316,6 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
 
     private void addSteps(int newSteps, int totalSteps) {
 
-        if (mBluetoothService != null)
-            mBluetoothService.sendPixelMessage(totalSteps);
-
         if (totalSteps == mCurrentTotalSteps)
             return;
 
@@ -344,6 +326,11 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
         mStepsContainer.addView(textView);
     }
 
+    private void updatePixels() {
+        if (mBluetoothService != null && mTrackerService != null)
+            mBluetoothService.sendPixelMessage(mTrackerService.getAvailableSteps());
+    }
+
     @DebugLog
     @Subscribe
     public void onStepsEvent(final TrackerService.StepsEvent event) {
@@ -351,10 +338,18 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
 
             @Override
             public void run() {
+                updatePixels();
                 addSteps(event.newSteps, event.totalSteps);
+
             }
 
         });
+    }
+
+    @DebugLog
+    @Subscribe
+    public void onPurchaseEvent(Shop.PurchaseEvent event) {
+        updatePixels();
     }
 
     @DebugLog

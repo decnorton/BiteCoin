@@ -13,17 +13,23 @@ import android.widget.AdapterView;
 import android.widget.ListView;
 import android.widget.Toast;
 
+import com.decnorton.bitecoin.events.Shop;
+import com.squareup.otto.Bus;
+
 import java.util.ArrayList;
 import java.util.List;
 
 import butterknife.ButterKnife;
 import butterknife.InjectView;
+import hugo.weaving.DebugLog;
 
 /**
  * Created by decnorton on 17/03/15.
  */
 public class ShopActivity extends ActionBarActivity implements AdapterView.OnItemClickListener {
     private static final String TAG = "ShopActivity";
+
+    private Bus bus = BusProvider.get();
 
     /**
      * Views
@@ -55,6 +61,7 @@ public class ShopActivity extends ActionBarActivity implements AdapterView.OnIte
         context.startActivity(new Intent(context, ShopActivity.class));
     }
 
+    @DebugLog
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -76,6 +83,8 @@ public class ShopActivity extends ActionBarActivity implements AdapterView.OnIte
     protected void onResume() {
         super.onResume();
 
+        bus.register(this);
+
         setFoodItems(createFoodList());
 
         bindService(new Intent(this, TrackerService.class), mTrackerServiceConnection, Context.BIND_AUTO_CREATE);
@@ -84,6 +93,8 @@ public class ShopActivity extends ActionBarActivity implements AdapterView.OnIte
     @Override
     protected void onPause() {
         super.onPause();
+
+        bus.unregister(this);
 
         unbindService(mTrackerServiceConnection);
     }
@@ -97,6 +108,7 @@ public class ShopActivity extends ActionBarActivity implements AdapterView.OnIte
         }
     }
 
+    @DebugLog
     private void buyFoodItem(FoodItem item) {
         if (item.getSteps() > mTrackerService.getAvailableSteps()) {
             toast("You haven't done enough exercise to buy this yet!");
@@ -106,6 +118,10 @@ public class ShopActivity extends ActionBarActivity implements AdapterView.OnIte
         mTrackerService.spendSteps(item.getSteps());
 
         toast("You've bought a " + item.getName());
+
+        bus.post(new Shop.PurchaseEvent());
+
+        BluetoothService.getInstance().sendPixelMessage(mTrackerService.getAvailableSteps());
     }
 
     private List<FoodItem> createFoodList() {
@@ -143,4 +159,5 @@ public class ShopActivity extends ActionBarActivity implements AdapterView.OnIte
     private void toast(String message) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
     }
+
 }

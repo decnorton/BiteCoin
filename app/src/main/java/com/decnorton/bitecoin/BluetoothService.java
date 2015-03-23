@@ -1,12 +1,8 @@
 package com.decnorton.bitecoin;
 
-import android.app.Service;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
-import android.content.Intent;
-import android.os.Binder;
-import android.os.IBinder;
 import android.util.Log;
 
 import com.decnorton.bitecoin.events.Bluetooth;
@@ -19,13 +15,14 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
+import bolts.Continuation;
 import bolts.Task;
 import hugo.weaving.DebugLog;
 
 /**
  * Created by decnorton on 20/02/15.
  */
-public class BluetoothService extends Service {
+public class BluetoothService {
     private static final String TAG = "BluetoothService";
 
     /**
@@ -53,46 +50,49 @@ public class BluetoothService extends Service {
     private final Bus bus = BusProvider.get();
 
     private BluetoothAdapter mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+    private boolean isDestroyed = false;
 
-    /**
-     * Binder
-     */
-    private final BluetoothBinder mBinder = new BluetoothBinder();
+    private static BluetoothService sInstance;
 
-    @Override
-    public void onCreate() {
-        super.onCreate();
+    public static BluetoothService getInstance() {
+        if (sInstance == null || sInstance.isDestroyed) {
+            sInstance = new BluetoothService();
+        }
 
+        return sInstance;
+    }
+
+    @DebugLog
+    private BluetoothService() {
         bus.register(this);
 
         checkBluetoothState();
     }
 
-    @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
-        return START_STICKY;
-    }
-
-    @Override
-    public void onDestroy() {
-        super.onDestroy();
-
+    @DebugLog
+    public void destroy() {
         bus.unregister(this);
+
+        if (mBluetoothSocket != null) {
+            try {
+                mBluetoothSocket.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+
+        this.isDestroyed = true;
     }
 
-    @Override
-    public IBinder onBind(Intent intent) {
-        return mBinder;
-    }
-
+    @DebugLog
     public Task<Boolean> connectToDevice(final BluetoothDevice device) {
         return Task.callInBackground(new Callable<Boolean>() {
             @Override
             public Boolean call() throws Exception {
-                mBluetoothDevice = device;
-
                 if (device == null)
                     return false;
+
+                mBluetoothDevice = device;
 
                 if (!checkBluetoothState())
                     return false;
@@ -140,7 +140,13 @@ public class BluetoothService extends Service {
         });
     }
 
+    @DebugLog
     private boolean isConnected() {
+        if (mBluetoothDevice == null) {
+            Log.e(TAG, "[isConnected] mBluetoothDevice is null");
+            return false;
+        }
+
         if (mBluetoothSocket == null) {
             Log.e(TAG, "[isConnected] mBluetoothSocket is null");
             return false;
@@ -185,16 +191,42 @@ public class BluetoothService extends Service {
         return true;
     }
 
-    @DebugLog
     public Task<Boolean> sendMessage(final String message) {
+        return sendMessage(message, 0);
+    }
+
+    @DebugLog
+    public Task<Boolean> sendMessage(final String message, final int attempt) {
+        if (attempt > 0) {
+            Log.i(TAG, "[sendMessage] Attempt #" + attempt);
+        }
+
+        if (!isConnected()) {
+            if (attempt > 3)
+                return Task.forError(new Exception("Maximum reconnection attempts exceeded"));
+
+            Log.e(TAG, "[sendMessage] Not connected. Message: " + message);
+
+            return connectToDevice(mBluetoothDevice)
+                    .continueWithTask(new Continuation<Boolean, Task<Boolean>>() {
+                        @Override
+                        public Task<Boolean> then(Task<Boolean> task) throws Exception {
+                            if (task.getResult()) {
+                                return sendMessage(message, attempt + 1);
+                            }
+
+                            Log.e(TAG, "[sendMessage] Couldn't retry connection");
+
+                            return Task.forResult(false);
+                        }
+                    });
+        }
+
         return Task.call(new Callable<Boolean>() {
 
+            @DebugLog
             @Override
             public Boolean call() throws Exception {
-                if (!isConnected()) {
-                    Log.e(TAG, "[sendMessage] Not connected. Message: " + message);
-                    return false;
-                }
 
                 byte[] bytes = message.getBytes();
 
@@ -224,14 +256,6 @@ public class BluetoothService extends Service {
         return sendMessage(message);
     }
 
-    public class BluetoothBinder extends Binder {
-
-        public BluetoothService getService() {
-            return BluetoothService.this;
-        }
-
-    }
-
     /**
      * Events
      */
@@ -241,6 +265,7 @@ public class BluetoothService extends Service {
 
     }
 
+    @DebugLog
     @Subscribe
     public void onDeviceDisconnectedEvent(Bluetooth.DeviceDisconnectedEvent event) {
         if (event.device.equals(mBluetoothDevice)) {
@@ -249,6 +274,7 @@ public class BluetoothService extends Service {
         }
     }
 
+    @DebugLog
     @Subscribe
     public void onDeviceDisconnectRequestedEvent(Bluetooth.DeviceDisconnectRequestedEvent event) {
         if (event.device.equals(mBluetoothDevice))
