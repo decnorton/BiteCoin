@@ -71,7 +71,9 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
     /**
      * Services
      */
+    private BluetoothService mBluetoothService;
     private TrackerService mTrackerService;
+
     ServiceConnection mTrackerServiceConnection = new ServiceConnection() {
 
         @Override
@@ -85,7 +87,7 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
         }
 
     };
-    private BluetoothService mBluetoothService;
+
     ServiceConnection mBluetoothServiceConnection = new ServiceConnection() {
 
         @Override
@@ -106,6 +108,7 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
     private BluetoothDevice mBluetoothDevice;
     private boolean mAuthInProgress = false;
     private boolean mIsConnecting = false;
+    private int mCurrentTotalSteps = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -258,7 +261,6 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
 
                             populateViews();
 
-                            mBluetoothService.sendPixelMessage(30);
                             return null;
                         }
                     }, Task.UI_THREAD_EXECUTOR);
@@ -300,6 +302,10 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
                     mBluetoothService.disconnect();
                 return true;
 
+            case R.id.action_shop:
+                ShopActivity.show(this);
+                return true;
+
         }
 
         return super.onOptionsItemSelected(item);
@@ -324,8 +330,17 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
     }
 
     private void addSteps(int newSteps, int totalSteps) {
+
+        if (mBluetoothService != null)
+            mBluetoothService.sendPixelMessage(totalSteps);
+
+        if (totalSteps == mCurrentTotalSteps)
+            return;
+
+        mCurrentTotalSteps = totalSteps;
+
         TextView textView = new TextView(this);
-        textView.setText(String.format("New steps: %d | Total steps: %d", newSteps, totalSteps));
+        textView.setText(String.format("Steps: %d", totalSteps));
         mStepsContainer.addView(textView);
     }
 
@@ -396,7 +411,7 @@ public class MainActivity extends ActionBarActivity implements View.OnClickListe
 
     @Subscribe
     public void onDeviceDisconnectedEvent(Bluetooth.DeviceDisconnectedEvent event) {
-        if (event.device.equals(mBluetoothDevice)) {
+        if (event.device != null && event.device.equals(mBluetoothDevice)) {
             mBluetoothDevice = null;
             populateViews();
         }

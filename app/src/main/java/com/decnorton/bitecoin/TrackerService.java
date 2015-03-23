@@ -65,16 +65,14 @@ public class TrackerService extends Service {
     private Integer mInitialSteps = null;
     private int mLatestNewSteps = 0;
     private int mTotalSteps = 0;
+    private int mSpentSteps = 0;
 
     OnDataPointListener mStepListener = new OnDataPointListener() {
         @Override
         public void onDataPoint(DataPoint dataPoint) {
-            if (!mIsTracking)
-                return;
 
             for (Field field : dataPoint.getDataType().getFields()) {
                 Value val = dataPoint.getValue(field);
-
                 Log.i(TAG, "Detected DataPoint field: " + field.getName());
                 Log.i(TAG, "Detected DataPoint value: " + val);
 
@@ -84,16 +82,23 @@ public class TrackerService extends Service {
                 }
 
                 int totalSteps = val.asInt() - mInitialSteps;
-                if (mLatestNewSteps == 0) {
-                    mLatestNewSteps = totalSteps;
+
+                int latestNewSteps = mLatestNewSteps;
+
+                if (latestNewSteps == 0) {
+                    latestNewSteps = totalSteps;
                 } else {
-                    mLatestNewSteps = totalSteps - mLatestNewSteps;
+                    latestNewSteps = totalSteps - latestNewSteps;
                 }
 
-                mTotalSteps = totalSteps;
+                Log.i(TAG, "[onDataPoint] New: " + latestNewSteps);
+                Log.i(TAG, "[onDataPoint] Total: " + totalSteps);
 
-                Log.i(TAG, "[onDataPoint] New: " + mLatestNewSteps);
-                Log.i(TAG, "[onDataPoint] Total: " + mTotalSteps);
+                if (!mIsTracking)
+                    continue;
+
+                mLatestNewSteps = latestNewSteps;
+                mTotalSteps = totalSteps;
 
                 bus.post(new StepsEvent(mLatestNewSteps, mTotalSteps));
 
@@ -163,8 +168,16 @@ public class TrackerService extends Service {
         return mTotalSteps;
     }
 
-    public void resetSteps() {
+    public void resetTotalSteps() {
         mInitialSteps = null;
+    }
+
+    public void spendSteps(int steps) {
+        mSpentSteps += steps;
+    }
+
+    public int getAvailableSteps() {
+        return mTotalSteps - mSpentSteps;
     }
 
     @DebugLog

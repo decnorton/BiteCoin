@@ -15,4 +15,10 @@
         android:icon="@drawable/ic_action_device_bluetooth_disabled"
         app:showAsAction="ifRoom"/>
 
+    <item
+        android:id="@+id/action_shop"
+        android:title="@string/action_shop"
+        android:icon="@drawable/ic_action_shopping_basket"
+        app:showAsAction="ifRoom"/>
+
 </menu>
